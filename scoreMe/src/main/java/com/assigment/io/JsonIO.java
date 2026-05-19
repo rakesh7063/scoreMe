@@ -6,6 +6,7 @@ import com.google.gson.*;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 
 public class JsonIO {
@@ -131,6 +132,45 @@ public class JsonIO {
         try (FileWriter writer = new FileWriter(filePath)) {
             new GsonBuilder().setPrettyPrinting().create().toJson(json, writer);
         }
+    }
+
+     // Load result metadata from JSON file. Does not attempt to reconstruct the assignment without instance context.
+    public static Result loadResult(String filePath) throws IOException {
+        JsonObject json;
+        try (FileReader reader = new FileReader(filePath)) {
+            json = JsonParser.parseReader(reader).getAsJsonObject();
+        }
+
+        boolean feasible = json.get("feasible").getAsBoolean();
+        double penalty = json.get("penalty").getAsDouble();
+        long runtimeMs = json.get("runtime_ms").getAsLong();
+        String violation = feasible ? null : json.get("violation_reason").getAsString();
+
+        return new Result(null, penalty, runtimeMs, feasible, violation);
+    }
+
+     // Load assignment from JSON file using instance context.
+    public static Assignment loadAssignment(Instance instance, String filePath) throws IOException {
+        JsonObject json;
+        try (FileReader reader = new FileReader(filePath)) {
+            json = JsonParser.parseReader(reader).getAsJsonObject();
+        }
+
+        if (!json.get("feasible").getAsBoolean()) {
+            return null;
+        }
+
+        if (!json.has("assignment")) {
+            return null;
+        }
+
+        JsonObject assignmentJson = json.getAsJsonObject("assignment");
+        Map<String, Integer> assignmentMap = new HashMap<>();
+        for (Map.Entry<String, JsonElement> entry : assignmentJson.entrySet()) {
+            assignmentMap.put(entry.getKey(), entry.getValue().getAsInt());
+        }
+
+        return Assignment.fromMap(instance, assignmentMap);
     }
 
 
