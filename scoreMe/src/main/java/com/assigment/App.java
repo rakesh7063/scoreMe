@@ -9,6 +9,11 @@ import com.assigment.model.Result;
 import com.assigment.validator.AssignmentValidator;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 
 
 public class App {
@@ -24,6 +29,9 @@ public class App {
                 break;
             case "validate":
                 handleValidate(args);
+                break;
+            case "benchmark":
+                handleBenchmark(args);
                 break;
             case "help":
             default:
@@ -117,6 +125,85 @@ public class App {
             System.out.println("  Warning: result is not actually feasible for the provided instance.");
         }
     }
+    private static void handleBenchmark(String[] args) throws IOException {
+        System.out.println("Running full benchmark suite...\n");
+
+        List<InstanceGenerator.BenchmarkConfig> benchmarks = InstanceGenerator.getBenchmarkSuite();
+        List<BenchmarkResult> results = new ArrayList<>();
+
+        System.out.println(String.format("%-30s | %5s | %5s | %8s | %6s | %10s",
+                "Instance", "n", "K", "Penalty", "Time(ms)", "Feasible"));
+        System.out.println("-".repeat(80));
+
+        int completed = 0;
+        for (InstanceGenerator.BenchmarkConfig config : benchmarks) {
+            try {
+                Instance instance = InstanceGenerator.generateInstance(config.n, config.K, config.conflictDensity, config.seed);
+
+                long startTime = System.currentTimeMillis();
+                ConflictAwareScheduler scheduler = new ConflictAwareScheduler(instance);
+                Result result = scheduler.schedule();
+                long elapsedTime = System.currentTimeMillis() - startTime;
+
+                BenchmarkResult br = new BenchmarkResult(config.name, config.n, config.K, result);
+                results.add(br);
+
+                System.out.println(String.format("%-30s | %5d | %5d | %8.2f | %6d | %10s",
+                        config.name,
+                        config.n,
+                        config.K,
+                        result.getPenalty(),
+                        result.getRuntimeMs(),
+                        result.isFeasible() ? "YES" : "NO"));
+
+                completed++;
+            } catch (Exception e) {
+                System.err.println("Error on " + config.name + ": " + e.getMessage());
+            }
+        }
+
+        System.out.println("-".repeat(80));
+        System.out.println("Completed: " + completed + "/" + benchmarks.size());
+
+        // Save summary
+        saveBenchmarkSummary(results);
+    }
+
+    private static void saveBenchmarkSummary(List<BenchmarkResult> results) throws IOException {
+        Path reportPath = Paths.get("benchmark_report_" + System.currentTimeMillis() + ".txt");
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("MSME CREDIT PIPELINE SCHEDULER - BENCHMARK REPORT\n");
+        sb.append("=".repeat(80)).append("\n\n");
+
+        sb.append(String.format("%-30s | %5s | %5s | %8s | %6s | %10s\n",
+                "Instance", "n", "K", "Penalty", "Time(ms)", "Feasible"));
+        sb.append("-".repeat(80)).append("\n");
+
+        int feasibleCount = 0;
+        double totalPenalty = 0;
+        long totalTime = 0;
+
+        for (BenchmarkResult br : results) {
+            sb.append(String.format("%-30s | %5d | %5d | %8.2f | %6d | %10s\n",
+                    br.name, br.n, br.K, br.penalty, br.runtimeMs, br.feasible ? "YES" : "NO"));
+
+            if (br.feasible) {
+                feasibleCount++;
+                totalPenalty += br.penalty;
+                totalTime += br.runtimeMs;
+            }
+        }
+
+        sb.append("-".repeat(80)).append("\n");
+        sb.append("SUMMARY\n");
+        sb.append("  Feasible instances: ").append(feasibleCount).append("/").append(results.size()).append("\n");
+        sb.append("  Average penalty (feasible): ").append(String.format("%.2f", totalPenalty / Math.max(1, feasibleCount))).append("\n");
+        sb.append("  Average runtime (feasible): ").append(String.format("%.2f", totalTime / Math.max(1.0, feasibleCount))).append(" ms\n");
+
+        Files.writeString(reportPath, sb.toString());
+        System.out.println("\n Benchmark report saved: " + reportPath);
+    }
 
     private static void printHelp() {
         System.out.println("MSME Credit Pipeline Scheduler\n");
@@ -130,5 +217,21 @@ public class App {
         System.out.println("  benchmark");
         System.out.println("    Run full benchmark suite\n");
     }
+    static class BenchmarkResult {
+        String name;
+        int n;
+        int K;
+        double penalty;
+        long runtimeMs;
+        boolean feasible;
 
+        BenchmarkResult(String name, int n, int K, Result result) {
+            this.name = name;
+            this.n = n;
+            this.K = K;
+            this.penalty = result.getPenalty();
+            this.runtimeMs = result.getRuntimeMs();
+            this.feasible = result.isFeasible();
+        }
+    }
 }
